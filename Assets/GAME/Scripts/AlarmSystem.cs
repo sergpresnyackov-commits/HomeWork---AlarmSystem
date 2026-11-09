@@ -1,73 +1,83 @@
-using System.Collections.Generic;
+using System.Collections;
 using UnityEngine;
 
+[RequireComponent(typeof(IntruderCounter))]
 public class AlarmSystem : MonoBehaviour
 {
     private const float StopVolumeValue = 0.001f;
 
-    [SerializeField] private List<AlarmTrigger> _alarmTriggers;
-
     [SerializeField] private AudioSource _alarmSound;
     [SerializeField, Range(0f, 1f)] private float _maxVolume = 1f;
-
     [SerializeField] private float _volumeChangeSpeed = 0.5f;
 
-    private int _intruderCount = 0;
-    private float _targetVolume = 0f;
+    private Coroutine _volumeCoroutine;
+    private IntruderCounter _intruderCounter;
 
     private void Awake()
     {
         _alarmSound.loop = true;
         _alarmSound.volume = 0f;
         _alarmSound.playOnAwake = false;
+
+        if (TryGetComponent(out IntruderCounter intruderCounter))
+        {
+            _intruderCounter = intruderCounter;
+        }
     }
 
     private void OnEnable()
     {
-        for (int i = 0; i < _alarmTriggers.Count; i++)
-        {
-            _alarmTriggers[i].IntruderDetected += AddIntruer;
-            _alarmTriggers[i].IntruderExited += SubtractIntruder;
-        }    
+        _intruderCounter.AlarmShouldTurnOn += TurnOn;
+        _intruderCounter.AlarmShouldTurnOff += TurnOff;
     }
 
     private void OnDisable()
     {
-        for (int i = 0; i < _alarmTriggers.Count; i++)
-        {
-            _alarmTriggers[i].IntruderDetected -= AddIntruer;
-            _alarmTriggers[i].IntruderExited -= SubtractIntruder;
-        }
+        _intruderCounter.AlarmShouldTurnOn -= TurnOn;
+        _intruderCounter.AlarmShouldTurnOff -= TurnOff;
     }
 
-    private void Update()
+    private void TurnOn()
     {
-        _alarmSound.volume = Mathf.MoveTowards(_alarmSound.volume, _targetVolume, _volumeChangeSpeed * Time.deltaTime);
-
-        if (_intruderCount == 0 && _alarmSound.volume <= StopVolumeValue && _alarmSound.isPlaying)
-        {
-            _alarmSound.Stop();
-        }
-    }
-
-    private void AddIntruer()
-    {
-        _intruderCount++;
-        _targetVolume = _maxVolume;
+        RestartRoutine();
 
         if (!_alarmSound.isPlaying)
         {
             _alarmSound.Play();
         }
+
+        _volumeCoroutine = StartCoroutine(ChangeVolume(_maxVolume));
     }
 
-    private void SubtractIntruder()
+    private void TurnOff()
     {
-        _intruderCount = Mathf.Max(0, _intruderCount - 1);
+        RestartRoutine();
+        _volumeCoroutine = StartCoroutine(ChangeVolume(0f));
+    }
 
-        if (_intruderCount == 0)
+    private void RestartRoutine()
+    {
+        if (_volumeCoroutine != null)
         {
-            _targetVolume = 0f;
+            StopCoroutine(_volumeCoroutine);
+            _volumeCoroutine = null;
         }
+    }
+
+    private IEnumerator ChangeVolume(float targetVolume)
+    {
+        while (!Mathf.Approximately(_alarmSound.volume, targetVolume))
+        {
+            _alarmSound.volume = Mathf.MoveTowards(_alarmSound.volume, targetVolume, _volumeChangeSpeed * Time.deltaTime);
+
+            yield return null;
+        }
+
+        if (targetVolume == 0f && _alarmSound.volume <= StopVolumeValue)
+        {
+            _alarmSound.Stop();
+        }
+
+        _volumeCoroutine = null;
     }
 }
